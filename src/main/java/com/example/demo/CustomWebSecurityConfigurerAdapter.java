@@ -1,16 +1,21 @@
 package com.example.demo;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.authentication.www.BasicAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
+import org.springframework.security.web.authentication.www.DigestAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.www.DigestAuthenticationFilter;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -22,29 +27,29 @@ import java.util.Arrays;
 @EnableWebSecurity
 public class CustomWebSecurityConfigurerAdapter extends WebSecurityConfigurerAdapter {
 
-//    @Autowired
-//    private MyBasicAuthenticationEntryPoint authenticationEntryPoint;
-
-    @Autowired
-    public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
-        auth.inMemoryAuthentication()
-                .withUser("user").password(passwordEncoder().encode("pass"))
-                .authorities("ROLE_USER");
+    @Bean
+    public UserDetailsService users() {
+        // The builder will ensure the passwords are encoded before saving in memory
+        UserDetails user = User.withUsername("user")
+                .password("pass")
+                .roles("USER")
+                .build();
+        return new InMemoryUserDetailsManager(user);
     }
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
         http.authorizeRequests()
 //                .antMatchers("/webdav/**").permitAll()
-                .anyRequest().authenticated()
-                .and()
-                .httpBasic()
-                .authenticationEntryPoint(authenticationEntryPoint());
+                .anyRequest().authenticated();
+//                .and()
+//                .httpBasic()
+//                .authenticationEntryPoint(basicAuthEntryPoint());
 
         http.cors().and().csrf().disable();
 
-//        http.addFilterAfter(new CustomFilter(),
-//                BasicAuthenticationFilter.class);
+        http.addFilterAfter(digestAuthenticationFilter(), BasicAuthenticationFilter.class)
+                .exceptionHandling().authenticationEntryPoint(digestAuthEntryPoint());
     }
 
     @Bean
@@ -60,23 +65,42 @@ public class CustomWebSecurityConfigurerAdapter extends WebSecurityConfigurerAda
     }
 
     @Bean
-    public AuthenticationEntryPoint authenticationEntryPoint(){
+    public AuthenticationEntryPoint basicAuthEntryPoint(){
         BasicAuthenticationEntryPoint entryPoint = new BasicAuthenticationEntryPoint();
-        entryPoint.setRealmName("DAV realm");
+        entryPoint.setRealmName("DAV realm via Basic Authentication");
         return entryPoint;
     }
 
     @Bean
+    DigestAuthenticationEntryPoint digestAuthEntryPoint() {
+        DigestAuthenticationEntryPoint result = new DigestAuthenticationEntryPoint();
+        result.setRealmName("DAV realm via Digest Authentication");
+        result.setKey("acegi");
+        return result;
+    }
+
+    @Bean
+    DigestAuthenticationFilter digestAuthenticationFilter() {
+        DigestAuthenticationFilter result = new DigestAuthenticationFilter();
+        result.setUserDetailsService(users());
+        result.setAuthenticationEntryPoint(digestAuthEntryPoint());
+        return result;
+    }
+
+//    @Bean
+//    public PasswordEncoder passwordEncoder() {
+//        return new BCryptPasswordEncoder();
+//    }
+
+    @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return NoOpPasswordEncoder.getInstance();
     }
 
     @Bean
     public StrictHttpFirewall httpFirewall() {
         StrictHttpFirewall firewall = new StrictHttpFirewall();
-//        firewall.setAllowedHttpMethods(Arrays.asList("HEAD", "DELETE", "POST", "GET", "OPTIONS", "PATCH", "PUT", "PROPFIND"));
-        firewall.setAllowedHttpMethods(Arrays.asList("OPTIONS", "GET", "POST", "HEAD", "DELETE", "LOCK", "UNLOCK", "PROPPATCH", "COPY", "MOVE", "PROPFIND"));
+        firewall.setAllowedHttpMethods(Arrays.asList("OPTIONS", "GET", "POST", "PUT", "PATCH", "HEAD", "DELETE", "LOCK", "UNLOCK", "PROPPATCH", "COPY", "MOVE", "PROPFIND"));
         return firewall;
     }
-
 }
